@@ -1,0 +1,11 @@
+2025/04/22 10:03:58 [INFO] Starting ECR cleanup in region us-east-1 | Retention: 1 minutes | Prefixes: latest | Dry-run: true
+2025/04/22 10:04:00 
+[INFO] 📦 Processing Repository: pbn-assessment
+2025/04/22 10:04:00 [DELETE] 🗑️ Old image to delete: sha256:f8b860e4f9036f2694571770da292642eebcc4c2ea0c70a1a9244c2a1d436cd9 | Age: 21 minutes | Tags: [0xc0004c50e0]
+2025/04/22 10:04:00 [KEEP] ✅ Image retained (latest tag-match): sha256:03b62250a3cb1abd125271d393fc08bf0cc713391eda6b57c02d1ef85efcc25c | Tags: [0xc0004c5140]
+2025/04/22 10:04:00 [INFO] ✅ ECR cleanup completed.
+2025/04/22 10:16:15 [INFO] Starting ECR cleanup in region us-east-1 | Retention: 3 days | Prefixes: latest | Dry-run: true
+2025/04/22 10:16:17 
+[INFO] 📦 Processing Repository: pbn-assessment
+2025/04/22 10:16:17 [KEEP] ✅ Image retained (latest tag-match): sha256:03b62250a3cb1abd125271d393fc08bf0cc713391eda6b57c02d1ef85efcc25c | Tags: [0xc0003aa1f0]
+2025/04/22 10:16:17 [INFO] ✅ ECR cleanup completed.
