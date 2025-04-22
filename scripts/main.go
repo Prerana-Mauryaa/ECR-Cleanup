@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -94,49 +95,80 @@ func main() {
 			continue
 		}
 
-		// Step 7: Process each image
+		// Step 7: Prepare for sorting and retention logic
+		type taggedImage struct {
+			digest     string
+			tags       []*string
+			pushedTime time.Time
+		}
+
+		prefixMatchMap := make(map[string][]taggedImage)
+
+		for _, image := range imageOutput.ImageDetails {
+			if image.ImagePushedAt == nil || len(image.ImageTags) == 0 {
+				continue
+			}
+			for _, tag := range image.ImageTags {
+				for _, prefix := range prefixes {
+					if strings.HasPrefix(*tag, prefix) {
+						prefixMatchMap[prefix] = append(prefixMatchMap[prefix], taggedImage{
+							digest:     *image.ImageDigest,
+							tags:       image.ImageTags,
+							pushedTime: *image.ImagePushedAt,
+						})
+						break
+					}
+				}
+			}
+		}
+
+		// Step 8: Build a set of digests to retain (top 2 per prefix)
+		retainedDigests := make(map[string]bool)
+		for _, images := range prefixMatchMap {
+			sort.Slice(images, func(i, j int) bool {
+				return images[i].pushedTime.After(images[j].pushedTime)
+			})
+
+			for i := 0; i < len(images) && i < 2; i++ {
+				retainedDigests[images[i].digest] = true
+			}
+		}
+
+		// Step 9: Process each image
 		for _, image := range imageOutput.ImageDetails {
 			if image.ImagePushedAt == nil {
 				continue
 			}
-
 			imageAge := int(time.Since(*image.ImagePushedAt).Hours() / 24)
 
-			// Step 8: Untagged images
+			// Untagged images
 			if len(image.ImageTags) == 0 {
 				logger.Printf("[DELETE] 🗑️ Untagged image candidate: %s", *image.ImageDigest)
 				continue
 			}
 
-			// Step 9: Older than retention
+			// Retained?
+			if retainedDigests[*image.ImageDigest] {
+				logger.Printf("[KEEP] ✅ Image retained (latest tag-match): %s | Tags: %v", *image.ImageDigest, image.ImageTags)
+				continue
+			}
+
+			// Delete if older than retention
 			if imageAge > retention {
-				keep := false
-				for _, tag := range image.ImageTags {
-					for _, prefix := range prefixes {
-						if strings.HasPrefix(*tag, prefix) {
-							keep = true
-						}
-					}
-				}
+				logger.Printf("[DELETE] 🗑️ Old image to delete: %s | Age: %d days | Tags: %v",
+					*image.ImageDigest, imageAge, image.ImageTags)
 
-				if keep {
-					logger.Printf("[KEEP] ✅ Image retained (matched prefix): %s | Tags: %v", *image.ImageDigest, image.ImageTags)
-				} else {
-					logger.Printf("[DELETE] 🗑️ Old image to delete: %s | Age: %d days | Tags: %v",
-						*image.ImageDigest, imageAge, image.ImageTags)
-
-					if !dryRun {
-						_, err := svc.BatchDeleteImage(&ecr.BatchDeleteImageInput{
-							RepositoryName: aws.String(repoName),
-							ImageIds: []*ecr.ImageIdentifier{
-								{ImageDigest: image.ImageDigest},
-							},
-						})
-						if err != nil {
-							logger.Printf("[ERROR] ❌ Error deleting image %s: %v", *image.ImageDigest, err)
-						} else {
-							logger.Printf("[SUCCESS] ✅ Image deleted: %s", *image.ImageDigest)
-						}
+				if !dryRun {
+					_, err := svc.BatchDeleteImage(&ecr.BatchDeleteImageInput{
+						RepositoryName: aws.String(repoName),
+						ImageIds: []*ecr.ImageIdentifier{
+							{ImageDigest: image.ImageDigest},
+						},
+					})
+					if err != nil {
+						logger.Printf("[ERROR] ❌ Error deleting image %s: %v", *image.ImageDigest, err)
+					} else {
+						logger.Printf("[SUCCESS] ✅ Image deleted: %s", *image.ImageDigest)
 					}
 				}
 			}

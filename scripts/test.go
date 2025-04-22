@@ -5,8 +5,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -27,7 +27,6 @@ func main() {
 
 	// Input variables
 	var region string
-	var retention int
 	var prefixList string
 	var dryRunInput string
 	var dryRun bool
@@ -36,18 +35,14 @@ func main() {
 	fmt.Print("Enter AWS Region (e.g., us-east-1): ")
 	fmt.Scanln(&region)
 
-	fmt.Print("Enter retention period in minutes (e.g., 5): ")
-	fmt.Scanln(&retention)
-
-	fmt.Print("Enter comma-separated tag prefixes to keep (e.g., latest,dev,main): ")
+	fmt.Print("Enter comma-separated tag prefixes to retain (e.g., latest,dev,main): ")
 	fmt.Scanln(&prefixList)
 
 	fmt.Print("Dry-run mode? (yes/no): ")
 	fmt.Scanln(&dryRunInput)
 	dryRun = strings.ToLower(dryRunInput) == "yes"
 
-	log.Printf("📌 Region: %s | Retention: %d mins | Prefixes: %s | Dry-run: %v",
-		region, retention, prefixList, dryRun)
+	log.Printf("📌 Region: %s | Prefixes: %s | Dry-run: %v", region, prefixList, dryRun)
 
 	// AWS session
 	sess, err := session.NewSession(&aws.Config{
@@ -73,7 +68,7 @@ func main() {
 
 	prefixes := strings.Split(prefixList, ",")
 
-	// Process each repo
+	// Process each repository
 	for _, repo := range repos.Repositories {
 		repoName := *repo.RepositoryName
 		log.Printf("\n📦 Repository: %s", repoName)
@@ -91,49 +86,77 @@ func main() {
 			continue
 		}
 
-		for _, image := range imageOutput.ImageDetails {
-			if image.ImagePushedAt == nil {
+		var taggedMatches []*ecr.ImageDetail
+		var untagged []*ecr.ImageDetail
+
+		for _, img := range imageOutput.ImageDetails {
+			if img.ImagePushedAt == nil {
 				continue
 			}
 
-			imageAge := int(time.Since(*image.ImagePushedAt).Minutes())
-
-			if len(image.ImageTags) == 0 {
-				log.Printf("🗑️ Untagged image to delete: %s", *image.ImageDigest)
+			if len(img.ImageTags) == 0 {
+				untagged = append(untagged, img)
 				continue
 			}
 
-			if imageAge > retention {
-				keep := false
-				for _, tag := range image.ImageTags {
-					for _, prefix := range prefixes {
-						if strings.HasPrefix(*tag, prefix) {
-							keep = true
-						}
+			matched := false
+			for _, tag := range img.ImageTags {
+				for _, prefix := range prefixes {
+					if strings.HasPrefix(*tag, prefix) {
+						matched = true
+						break
 					}
 				}
+				if matched {
+					break
+				}
+			}
 
-				if keep {
-					log.Printf("✅ Retain image (prefix matched): %s", *image.ImageDigest)
+			if matched {
+				taggedMatches = append(taggedMatches, img)
+			}
+		}
+
+		// Sort matched images by pushed time (descending)
+		sort.Slice(taggedMatches, func(i, j int) bool {
+			return taggedMatches[i].ImagePushedAt.After(*taggedMatches[j].ImagePushedAt)
+		})
+
+		// Retain only the latest 2
+		keepMap := make(map[string]bool)
+		for i, img := range taggedMatches {
+			if i < 2 {
+				log.Printf("✅ Retaining image (recent tag): %s", *img.ImageDigest)
+				keepMap[*img.ImageDigest] = true
+			}
+		}
+
+		// Collect images to delete: older tagged + untagged
+		var toDelete []*ecr.ImageDetail
+		for _, img := range taggedMatches {
+			if _, keep := keepMap[*img.ImageDigest]; !keep {
+				toDelete = append(toDelete, img)
+			}
+		}
+		toDelete = append(toDelete, untagged...)
+
+		// Delete or dry-run
+		for _, img := range toDelete {
+			digest := *img.ImageDigest
+			if !dryRun {
+				_, err := svc.BatchDeleteImage(&ecr.BatchDeleteImageInput{
+					RepositoryName: aws.String(repoName),
+					ImageIds: []*ecr.ImageIdentifier{
+						{ImageDigest: aws.String(digest)},
+					},
+				})
+				if err != nil {
+					log.Printf("❌ Error deleting image %s: %v", digest, err)
 				} else {
-					log.Printf("🗑️ Old image to delete: %s (Age: %d minutes)", *image.ImageDigest, imageAge)
-
-					if !dryRun {
-						_, err := svc.BatchDeleteImage(&ecr.BatchDeleteImageInput{
-							RepositoryName: aws.String(repoName),
-							ImageIds: []*ecr.ImageIdentifier{
-								{ImageDigest: image.ImageDigest},
-							},
-						})
-						if err != nil {
-							log.Printf("❌ Error deleting image %s: %v", *image.ImageDigest, err)
-						} else {
-							log.Printf("✅ Image deleted: %s", *image.ImageDigest)
-						}
-					} else {
-						log.Printf("ℹ️ Dry-run mode: Skipped deletion of image %s", *image.ImageDigest)
-					}
+					log.Printf("🗑️ Deleted image: %s", digest)
 				}
+			} else {
+				log.Printf("ℹ️ Dry-run: Would delete image %s", digest)
 			}
 		}
 	}
