@@ -1,3 +1,4 @@
+
 # ECR Image Cleanup
 ### Overview
 
@@ -43,3 +44,26 @@ You can view the cleanup log here: [ecr-image-cleanup.log](https://github.com/Pr
 After testing it for multiple cases using minutes as the retention period, we will switch back to using days and perform the tests again.
 
 ![Repos](https://github.com/Prerana-Mauryaa/ECR-Cleanup/blob/feature-branch/images/days.png)
+
+
+## Branching Strategy
+We will follow a Feature Branching strategy where each feature is developed in its own isolated branch. These branches are created from the develop branch and are named using the format feature/{feature-name}.
+
+![Repos](https://github.com/Prerana-Mauryaa/ECR-Cleanup/blob/feature-branch/images/Master.png)
+
+
+## Tagging and Releasing
+
+### Version Tagging:
+- Releases are tagged with version numbers following [Semantic Versioning](https://semver.org/) (e.g., `v1.0.0`).
+- Tags are created when a feature reaches a stable milestone and is ready for release.
+
+### Release Notes:
+Each release will include detailed release notes that describe:
+- New features
+- Bug fixes
+- Any breaking changes
+
+### Release Process:
+- Once the feature is merged into the `main` or `production` branch, create a version tag.
+- Document the release changes in the `CHANGELOG.md`.
