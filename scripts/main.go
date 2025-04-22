@@ -39,7 +39,7 @@ func main() {
 	fmt.Print("Enter AWS Region (e.g., us-east-1): ")
 	fmt.Scanln(&region)
 
-	fmt.Print("Enter retention period in days (e.g., 10): ")
+	fmt.Print("Enter retention period in minutes (e.g., 60): ")
 	fmt.Scanln(&retention)
 
 	fmt.Print("Enter comma-separated tag prefixes to keep (e.g., latest,dev,main): ")
@@ -49,7 +49,7 @@ func main() {
 	fmt.Scanln(&dryRunInput)
 	dryRun = strings.ToLower(dryRunInput) == "yes"
 
-	logger.Printf("[INFO] Starting ECR cleanup in region %s | Retention: %d days | Prefixes: %s | Dry-run: %v",
+	logger.Printf("[INFO] Starting ECR cleanup in region %s | Retention: %d minutes | Prefixes: %s | Dry-run: %v",
 		region, retention, prefixList, dryRun)
 
 	// Step 2: Create AWS session
@@ -139,7 +139,7 @@ func main() {
 			if image.ImagePushedAt == nil {
 				continue
 			}
-			imageAge := int(time.Since(*image.ImagePushedAt).Hours() / 24)
+			imageAge := int(time.Since(*image.ImagePushedAt).Minutes())
 
 			// Untagged images
 			if len(image.ImageTags) == 0 {
@@ -155,7 +155,7 @@ func main() {
 
 			// Delete if older than retention
 			if imageAge > retention {
-				logger.Printf("[DELETE] 🗑️ Old image to delete: %s | Age: %d days | Tags: %v",
+				logger.Printf("[DELETE] 🗑️ Old image to delete: %s | Age: %d minutes | Tags: %v",
 					*image.ImageDigest, imageAge, image.ImageTags)
 
 				if !dryRun {
